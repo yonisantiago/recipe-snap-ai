@@ -27,6 +27,19 @@ const GenerateRecipeOutputSchema = z.object({
 });
 export type GenerateRecipeOutput = z.infer<typeof GenerateRecipeOutputSchema>;
 
+// Simple delay function
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Function to check if the error is a 503 error
+const isServiceUnavailableError = (error: any): boolean => {
+  // Check based on common error structures or messages for 503
+  const message = error?.message || '';
+  const cause = error?.cause as any; // Type assertion for potential cause property
+  const status = cause?.status || error?.status; // Check status in cause or error itself
+
+  return status === 503 || message.includes('503') || message.includes('Service Unavailable') || message.includes('overloaded');
+};
+
 export async function generateRecipe(input: GenerateRecipeInput): Promise<GenerateRecipeOutput> {
   return generateRecipeFlow(input);
 }
@@ -41,21 +54,35 @@ const provideAlternateIngredients = ai.defineTool({
   }),
   outputSchema: z.array(z.string()).describe('A list of alternate ingredients to consider'),
 }, async input => {
-  return ["salt", "pepper"];
+  // Placeholder implementation - in a real scenario, this might call another LLM or use a database
+  console.log("Tool provideAlternateIngredients called with:", input.ingredients);
+  // Suggest some common pantry staples as alternatives or additions
+  const commonAlternates = ["olive oil", "butter", "salt", "black pepper", "garlic powder", "onion powder"];
+  // Filter out alternates already present in the input ingredients
+  const suggestions = commonAlternates.filter(alt => !input.ingredients.includes(alt.toLowerCase()));
+  // Return a limited number of suggestions
+  return suggestions.slice(0, 3);
 })
 
 const provideAlternateSteps = ai.defineTool({
   name: 'provideAlternateSteps',
-  description: 'Suggests possible alternate steps given an original set of steps.',
+  description: 'Suggests possible alternate cooking steps or techniques given an original set of steps.',
   inputSchema: z.object({
     steps: z
       .array(z.string())
-      .describe('The list of original steps.'),
+      .describe('The list of original cooking steps.'),
   }),
-  outputSchema: z.array(z.string()).describe('A list of alternate steps to consider'),
+  outputSchema: z.array(z.string()).describe('A list of alternate steps or techniques to consider'),
 }, async input => {
-  return ["step 1", "step 2"];
+   // Placeholder implementation
+   console.log("Tool provideAlternateSteps called with:", input.steps);
+   // Suggest a generic alternative technique
+   if (input.steps.some(step => step.toLowerCase().includes("fry") || step.toLowerCase().includes("saute"))) {
+     return ["Consider baking or grilling as a healthier alternative."];
+   }
+   return ["Season to taste before serving."]; // Generic fallback suggestion
 })
+
 
 const prompt = ai.definePrompt({
   name: 'generateRecipePrompt',
@@ -75,10 +102,18 @@ const prompt = ai.definePrompt({
         .describe('A list of alternate ingredients to consider.'),
     }),
   },
-  prompt: `You are a world-class chef.  Given the following ingredients, generate a cohesive recipe including a name and cooking steps.\n\nIngredients: {{{ingredients}}}`, // Removed unnecessary line break
+  prompt: `You are a world-class chef. Given the following ingredients, generate a cohesive recipe including a creative name and clear, step-by-step cooking instructions.
+
+Ingredients:
+{{#each ingredients}}
+- {{{this}}}
+{{/each}}
+
+Generate the recipe name and instructions.`,
   tools: [provideAlternateIngredients, provideAlternateSteps],
-  system: `You are a recipe generating machine. Generate a recipe including a list of cooking steps. If you are able to, use provideAlternateIngredients to provide a list of alternative ingredients.`
+  system: `You are a recipe generating machine. Generate a recipe including a list of cooking steps. If appropriate based on the provided ingredients, use the 'provideAlternateIngredients' tool to suggest relevant alternative ingredients. Only use the tool if it makes sense; don't force it. Do not use the provideAlternateSteps tool.`
 });
+
 
 const generateRecipeFlow = ai.defineFlow<
   typeof GenerateRecipeInputSchema,
@@ -90,7 +125,34 @@ const generateRecipeFlow = ai.defineFlow<
     outputSchema: GenerateRecipeOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
-    return output!;
+    let retries = 0;
+    const maxRetries = 3;
+    const initialDelay = 1000; // 1 second
+
+    while (retries < maxRetries) {
+      try {
+        console.log(`Attempt ${retries + 1} for generateRecipePrompt`);
+        const {output} = await prompt(input);
+         if (!output) {
+           throw new Error('Received null output from generateRecipePrompt');
+         }
+        return output; // Ensure non-null return
+      } catch (error) {
+        console.error(`Error in generateRecipeFlow (Attempt ${retries + 1}):`, error);
+        if (isServiceUnavailableError(error) && retries < maxRetries - 1) {
+          retries++;
+          const waitTime = initialDelay * Math.pow(2, retries - 1); // Exponential backoff
+          console.warn(`Service unavailable (503). Retrying in ${waitTime}ms...`);
+          await delay(waitTime);
+        } else {
+          // If it's not a 503 error or max retries reached, throw the error
+          const errorMessage = error instanceof Error ? error.message : "An unknown error occurred during recipe generation.";
+          throw new Error(`Failed to generate recipe after ${retries + 1} attempts: ${errorMessage}`);
+        }
+      }
+    }
+     // Should not be reached if logic is correct, but acts as a safeguard
+    throw new Error(`Failed to generate recipe after ${maxRetries} attempts due to persistent errors.`);
   }
 );
+

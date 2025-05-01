@@ -62,39 +62,23 @@ export default function Home() {
   const handleGenerateRecipe = async (ingredients: string[]) => {
     setError(null); // Clear previous errors specific to recipe generation
     setIsLoadingRecipe(true);
-    let retries = 0;
-    const maxRetries = 3;
-    const retryDelay = 1000; // 1 second
+
 
     try {
-      while (retries < maxRetries) {
-        try {
-          console.log("Generating recipe for:", ingredients);
-          const generatedData = await generateRecipe({ ingredients });
-          console.log("Recipe generated:", generatedData);
+       console.log("Generating recipe for:", ingredients);
+       const generatedData = await generateRecipe({ ingredients });
+       console.log("Recipe generated:", generatedData);
 
-          if (!generatedData || !generatedData.recipeName || !generatedData.instructions) {
-            throw new Error("Failed to generate a valid recipe. The AI might need more distinct ingredients.");
-          }
+       if (!generatedData || !generatedData.recipeName || !generatedData.instructions) {
+         throw new Error("Failed to generate a valid recipe. The AI might need more distinct ingredients.");
+       }
 
-          setRecipeResult(generatedData);
-          toast({
-            title: "Recipe Generated!",
-            description: `Created the "${generatedData.recipeName}" recipe.`,
-          });
-          return; // Exit the loop if successful
-        } catch (err) {
-        if ((err as any)?.response?.status === 503) {
-            retries++;
-            console.warn(`Attempt ${retries} failed with 503. Retrying in ${retryDelay}ms...`);
-            await new Promise(resolve => setTimeout(resolve, retryDelay));
-          } else {
-            throw err; // Re-throw other errors
-          }
-      }
-      }
-      // If all retries failed
-      throw new Error("Failed to generate recipe after multiple retries.");
+       setRecipeResult(generatedData);
+       toast({
+         title: "Recipe Generated!",
+         description: `Created the "${generatedData.recipeName}" recipe.`,
+       });
+
     } catch (err) {
       console.error("Error generating recipe:", err);
       const errorMessage = err instanceof Error ? err.message : "An unknown error occurred during recipe generation.";
