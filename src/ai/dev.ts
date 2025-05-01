@@ -1,1 +1,2 @@
-// Flows will be imported for their side effects in this file.
+import '@/ai/flows/identify-ingredients.ts';
+import '@/ai/flows/generate-recipe.ts';
